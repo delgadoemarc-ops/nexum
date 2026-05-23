@@ -1313,8 +1313,10 @@ function doLogout(){
 }
 function toggleAdminPanel(){document.getElementById('admin-panel').classList.toggle('open');}
 function updatePendingCount(){
+  const el=document.getElementById('pending-count');
+  if(!el) return;
   const n=document.querySelectorAll('#admin-reservations-list .res-badge.badge-pending').length;
-  document.getElementById('pending-count').textContent=n+(n===1?' pendiente':' pendientes');
+  el.textContent=n+(n===1?' pendiente':' pendientes');
 }
 
 /* ── DATA ──
@@ -1450,7 +1452,7 @@ function renderListings(filter){
     </div>`;
   });
   grid.innerHTML=html;
-  document.getElementById('listings-count').textContent=count+' propiedad'+(count===1?'':'es');
+  const lc=document.getElementById('listings-count'); if(lc) lc.textContent=count+' propiedad'+(count===1?'':'es');
 }
 
 let currentFilter='all';
