@@ -1827,8 +1827,6 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   const year=new Date().getFullYear();
   const occ=getBD(aptId,year,month);
   for(let d=d1;d<d2;d++) occ.add(d);
-  // Guardar en Worker para que sea visible para todos los usuarios
-  saveBlockedDaysToWorker(_aptId||aptId, year, _month||month, occ);
   // Update badge
   item.querySelector('.res-badge').className='res-badge badge-confirmed';
   item.querySelector('.res-badge').textContent='Confirmada';
@@ -1849,11 +1847,17 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   updatePendingCount();
   // Register payment automatically
   const guestName=(item.querySelector('.res-name')&&item.querySelector('.res-name').textContent!=='Nueva solicitud')?item.querySelector('.res-name').textContent:(window._guestName||'Huésped');
+  // Resolver valores correctos para Turno
+  const _aptId = aptId || item.dataset.aptId;
+  const _month = (!isNaN(month) && month !== undefined) ? month : parseInt(item.dataset.month);
+  const _d1 = (!isNaN(d1) && d1 !== undefined) ? d1 : parseInt(item.dataset.d1);
+  const _d2 = (!isNaN(d2) && d2 !== undefined) ? d2 : parseInt(item.dataset.d2);
+  // Guardar en Worker para que sea visible para todos los usuarios
+  saveBlockedDaysToWorker(_aptId, year, _month, getBD(_aptId,year,_month));
   // Guardar ficha del huésped
   if(window._lastGuestProfile) {
     window._lastGuestProfile.nukiCode=window._lastNukiPin||'—';
     saveGuestProfile(resId, window._lastGuestProfile);
-    // Añadir botón "Ver ficha" al item
     const infoDiv=item.querySelector('.res-info');
     if(infoDiv){
       const btn=document.createElement('button');
@@ -1865,12 +1869,8 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   }
   const method=window._lastBooking&&window._lastBooking.pay?window._lastBooking.pay:'transferencia';
   const total=window._lastBooking&&window._lastBooking.total?window._lastBooking.total:null;
-  registerPayment(aptId,month,d1,d2,guestName,method,total);
-  // Enviar reserva a Turno — usar dataset si d1/d2 son undefined
-  const _d1 = (!isNaN(d1) && d1 !== undefined) ? d1 : parseInt(item.dataset.d1);
-  const _d2 = (!isNaN(d2) && d2 !== undefined) ? d2 : parseInt(item.dataset.d2);
-  const _month = (!isNaN(month) && month !== undefined) ? month : parseInt(item.dataset.month);
-  const _aptId = aptId || item.dataset.aptId;
+  registerPayment(_aptId,_month,_d1,_d2,guestName,method,total);
+  // Enviar reserva a Turno
   sendReservationToTurno(_aptId, _month, _d1, _d2, guestName);
   // Generate Nuki access code + send welcome email
   const nukiPin = generateNukiPin();
