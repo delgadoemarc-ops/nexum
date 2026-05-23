@@ -3146,12 +3146,12 @@ async function createNukiCode(aptId, month, d1, d2, guestName) {
 
   // Fechas en timestamp UTC (Nuki usa millisegundos)
   const checkIn  = new Date(year, month, d1, 15, 0, 0).getTime(); // Check-in 15:00
-  const checkOut = new Date(year, month, d2, 11, 0, 0).getTime(); // Check-out 11:00
+  const checkOut = new Date(year, month, d2, 12, 0, 0).getTime(); // Check-out 12:00
 
   // Mostrar modal inmediatamente con el código
   document.getElementById('nuki-code-display').textContent = pin;
   document.getElementById('nuki-checkin').textContent  = `${d1} ${MONTHS[month]} ${year} 15:00`;
-  document.getElementById('nuki-checkout').textContent = `${d2} ${MONTHS[month]} ${year} 11:00`;
+  document.getElementById('nuki-checkout').textContent = `${d2} ${MONTHS[month]} ${year} 12:00`;
   document.getElementById('nuki-status').className = 'nuki-status ok';
   document.getElementById('nuki-status').textContent = '✓ Código generado — introdúcelo en la app Nuki con las fechas indicadas.';
   document.getElementById('nuki-overlay').classList.add('open');
@@ -3273,7 +3273,7 @@ async function sendWelcomeEmail(guestName, guestEmail, aptId, month, d1, d2, acc
   const apt = DATA[aptId];
   const year = new Date().getFullYear();
   const checkinDate  = `${d1} de ${MONTHS[month]} de ${year} a las 15:00h`;
-  const checkoutDate = `${d2} de ${MONTHS[month]} de ${year} a las 11:00h`;
+  const checkoutDate = `${d2} de ${MONTHS[month]} de ${year} a las 12:00h`;
   const aptAddress   = apt.address || apt.loc;
 
   const templateParams = {
@@ -3508,7 +3508,7 @@ function openGuide(aptId){
         <div style="font-size:24px;">🔓</div>
       </div>
       <div class="guide-item"><span class="guide-item-icon">⏰</span><span class="guide-item-text"><strong>Check-in:</strong> a partir de las 15:00h</span></div>
-      <div class="guide-item"><span class="guide-item-icon">⏰</span><span class="guide-item-text"><strong>Check-out:</strong> antes de las 11:00h</span></div>
+      <div class="guide-item"><span class="guide-item-icon">⏰</span><span class="guide-item-text"><strong>Check-out:</strong> antes de las 12:00h</span></div>
       <div class="guide-item"><span class="guide-item-icon">📍</span><span class="guide-item-text"><strong>Dirección:</strong> ${a.address||a.loc}</span></div>
     </div>
     <div class="guide-section">
