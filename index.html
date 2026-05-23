@@ -1302,6 +1302,7 @@ function doLogin(){
     document.getElementById('admin-banner').classList.add('visible');
     updatePendingCount();
     requestNotificationPermission(); // Pedir permiso para notificaciones
+    loadReservationsFromWorker(); // Cargar reservas guardadas
   } else { document.getElementById('login-error').classList.add('show'); }
 }
 function doLogout(){
@@ -1802,21 +1803,34 @@ function addReservationAndClose(){
     const parts=guestName.trim().split(' ');
     const initials=parts.length>=2?(parts[0][0]+parts[1][0]).toUpperCase():guestName.slice(0,2).toUpperCase();
     const resId='res-'+Date.now();
+    const aptId=Object.keys(DATA).find(k=>DATA[k].name===b.apt)||'apt1';
+    const year=new Date().getFullYear();
+
+    // Bloquear días inmediatamente para todos los usuarios
+    const occ=getBD(aptId,year,b.month);
+    for(let d=b.sel1;d<b.sel2;d++) occ.add(d);
+    saveBlockedDaysToWorker(aptId,year,b.month,occ);
+
+    // Guardar reserva pendiente en Worker para que admin la vea desde cualquier dispositivo
+    saveReservationToWorker({
+      resId, aptId, month:b.month, year, d1:b.sel1, d2:b.sel2,
+      guestName, apt:b.apt, status:'pending',
+      email:b.email||'', pay:b.pay||'', total:b.total||0,
+      profile:window._lastGuestProfile||{}
+    });
+
+    // Añadir al panel admin si está abierto
     const item=document.createElement('div');
     item.className='res-item';
     item.id=resId;
     item.style.borderLeft='3px solid #B5835A';
-    // Find aptId from apt name
-    const aptId=Object.keys(DATA).find(k=>DATA[k].name===b.apt)||'apt1';
     item.innerHTML=`<div class="res-avatar" style="background:#faf4e4;color:#8a6020">${initials}</div><div class="res-info"><div class="res-name">${guestName}</div><div class="res-detail">${b.apt} · ${MONTHS[b.month].slice(0,3)} ${b.sel1}–${b.sel2}</div></div><span class="res-badge badge-pending">Pendiente</span><div class="res-actions"><button class="res-btn res-btn-accept" title="Confirmar" onclick="acceptRes(this,'${resId}','${aptId}',${b.month},${b.sel1},${b.sel2})">✓</button><button class="res-btn res-btn-reject" title="Rechazar" onclick="rejectRes(this,'${resId}')">✗</button></div>`;
     const resList=document.getElementById('admin-reservations-list');
     resList.insertBefore(item, resList.firstChild);
-    // Ocultar mensaje de "sin reservas"
     const resEmpty=document.getElementById('reservations-empty');
     if(resEmpty) resEmpty.style.display='none';
     updatePendingCount();
-    // Notificación al propietario
-    if(isAdmin) sendBrowserNotification('Nueva solicitud de reserva 🏠', `${guestName} quiere reservar ${b.apt} · ${MONTHS[b.month].slice(0,3)} ${b.sel1}–${b.sel2}`, '🏠');
+    sendBrowserNotification('Nueva solicitud de reserva 🏠', `${guestName} quiere reservar ${b.apt} · ${MONTHS[b.month].slice(0,3)} ${b.sel1}–${b.sel2}`, '🏠');
   }
   closeModal();
 }
@@ -1836,6 +1850,8 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   const actions=item.querySelector('.res-actions');
   if(actions) actions.remove();
   item.style.borderLeft='3px solid #B5835A';
+  // Actualizar estado en Worker
+  updateReservationStatus(resId, 'confirmed');
   // Guardar datos de la reserva en el item para poder cancelarla
   item.dataset.aptId=aptId;
   item.dataset.month=month;
@@ -1922,6 +1938,18 @@ function rejectRes(btn,resId){
   const actions=item.querySelector('.res-actions');
   if(actions) actions.remove();
   item.style.borderLeft='none';
+  updateReservationStatus(resId, 'cancelled');
+  // Liberar días bloqueados al rechazar
+  const year=new Date().getFullYear();
+  const month=parseInt(item.dataset.month);
+  const d1=parseInt(item.dataset.d1);
+  const d2=parseInt(item.dataset.d2);
+  const aptId=item.dataset.aptId;
+  if(aptId&&!isNaN(month)&&!isNaN(d1)&&!isNaN(d2)){
+    const occ=getBD(aptId,year,month);
+    for(let d=d1;d<d2;d++) occ.delete(d);
+    saveBlockedDaysToWorker(aptId,year,month,occ);
+  }
   updatePendingCount();
 }
 
@@ -3606,6 +3634,68 @@ async function loadBlockedDaysFromWorker() {
   } catch(e) {
     console.warn('Error cargando días bloqueados:', e.message);
   }
+}
+
+
+/* ══════════════════════════════════════════
+   RESERVATIONS SYNC — Cloudflare Worker
+   Guarda y carga reservas globalmente
+══════════════════════════════════════════ */
+
+async function saveReservationToWorker(res) {
+  try {
+    await fetch(BLOCKED_WORKER, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({type:'reservation', res}),
+    });
+  } catch(e) { console.warn('Error saving reservation:', e.message); }
+}
+
+async function updateReservationStatus(resId, status) {
+  try {
+    await fetch(BLOCKED_WORKER, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({type:'res_status', resId, status}),
+    });
+  } catch(e) { console.warn('Error updating reservation:', e.message); }
+}
+
+async function loadReservationsFromWorker() {
+  try {
+    const resp = await fetch(BLOCKED_WORKER + '?type=reservations');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.reservations || !data.reservations.length) return;
+    const resList = document.getElementById('admin-reservations-list');
+    const resEmpty = document.getElementById('reservations-empty');
+    data.reservations.forEach(res => {
+      // Evitar duplicados
+      if (document.getElementById(res.resId)) return;
+      const parts = (res.guestName||'').trim().split(' ');
+      const initials = parts.length>=2?(parts[0][0]+parts[1][0]).toUpperCase():(res.guestName||'?').slice(0,2).toUpperCase();
+      const item = document.createElement('div');
+      item.className = 'res-item';
+      item.id = res.resId;
+      item.dataset.aptId = res.aptId;
+      item.dataset.month = res.month;
+      item.dataset.d1 = res.d1;
+      item.dataset.d2 = res.d2;
+      if (res.status === 'pending') {
+        item.style.borderLeft = '3px solid #B5835A';
+        item.innerHTML = `<div class="res-avatar" style="background:#faf4e4;color:#8a6020">${initials}</div><div class="res-info"><div class="res-name">${res.guestName}</div><div class="res-detail">${res.apt} · ${MONTHS[res.month].slice(0,3)} ${res.d1}–${res.d2}</div></div><span class="res-badge badge-pending">Pendiente</span><div class="res-actions"><button class="res-btn res-btn-accept" title="Confirmar" onclick="acceptRes(this,'${res.resId}','${res.aptId}',${res.month},${res.d1},${res.d2})">✓</button><button class="res-btn res-btn-reject" title="Rechazar" onclick="rejectRes(this,'${res.resId}')">✗</button></div>`;
+      } else if (res.status === 'confirmed') {
+        item.style.borderLeft = '3px solid #B5835A';
+        item.innerHTML = `<div class="res-avatar" style="background:#faf4e4;color:#8a6020">${initials}</div><div class="res-info"><div class="res-name">${res.guestName}</div><div class="res-detail">${res.apt} · ${MONTHS[res.month].slice(0,3)} ${res.d1}–${res.d2}</div></div><span class="res-badge badge-confirmed">Confirmada</span>`;
+      } else {
+        item.innerHTML = `<div class="res-avatar">${initials}</div><div class="res-info"><div class="res-name">${res.guestName}</div><div class="res-detail">${res.apt} · ${MONTHS[res.month].slice(0,3)} ${res.d1}–${res.d2}</div></div><span class="res-badge badge-cancelled">Cancelada</span>`;
+      }
+      if (resList) resList.appendChild(item);
+    });
+    if (resEmpty && data.reservations.length > 0) resEmpty.style.display = 'none';
+    updatePendingCount();
+  } catch(e) { console.warn('Error loading reservations:', e.message); }
 }
 
 /* ── INIT ── */
