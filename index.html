@@ -3568,16 +3568,17 @@ async function sendReservationToTurno(aptId, month, d1, d2, guestName) {
   const pad = n => String(n).padStart(2,'0');
   // DTSTART = día de checkout (día que hay que limpiar)
   // DTEND = día después del checkout
+  // Limpieza el día del checkout (d2) — el apartamento se limpia tras la salida
   const checkoutDay = new Date(year, month, d2);
-  const dayAfter = new Date(year, month, d2+1);
+  const dayAfterCheckout = new Date(year, month, d2+1);
   const fmtDate = d => `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
   const aptName = DATA[aptId]?DATA[aptId].name:'Apartamento Iturrama I';
   const payload = {
     id: `nexum-${Date.now()}`,
     apt: aptName,
     guest: guestName,
-    start: fmtDate(checkoutDay), // Día de limpieza = día de checkout
-    end: fmtDate(dayAfter),
+    start: fmtDate(checkoutDay),     // DTSTART = día checkout = día limpieza
+    end: fmtDate(dayAfterCheckout),  // DTEND = día siguiente
     checkin: `${year}${pad(month+1)}${pad(d1)}`,
     checkout: `${year}${pad(month+1)}${pad(d2)}`,
   };
