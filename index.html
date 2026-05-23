@@ -1124,7 +1124,7 @@
     <button class="btn-close" onclick="closeNukiModal()" style="position:absolute;top:16px;right:16px;">×</button>
     <div class="nuki-icon">🔐</div>
     <div class="nuki-title">Código de acceso generado</div>
-    <div class="nuki-subtitle">El código ha sido registrado en la cerradura Nuki para las fechas de la estancia.</div>
+    <div class="nuki-subtitle">Introduce este código en la app Nuki con las fechas de la estancia.</div>
     <div class="nuki-code-box">
       <div class="nuki-code" id="nuki-code-display">——</div>
       <div class="nuki-code-label">Código PIN de acceso</div>
@@ -3124,57 +3124,19 @@ async function createNukiCode(aptId, month, d1, d2, guestName) {
   document.getElementById('nuki-code-display').textContent = pin;
   document.getElementById('nuki-checkin').textContent  = `${d1} ${MONTHS[month]} ${year} 15:00`;
   document.getElementById('nuki-checkout').textContent = `${d2} ${MONTHS[month]} ${year} 11:00`;
-  document.getElementById('nuki-status').className = 'nuki-status loading';
-  document.getElementById('nuki-status').textContent = '⏳ Registrando código en la cerradura...';
+  document.getElementById('nuki-status').className = 'nuki-status ok';
+  document.getElementById('nuki-status').textContent = '✓ Código generado — introdúcelo en la app Nuki con las fechas indicadas.';
   document.getElementById('nuki-overlay').classList.add('open');
 
   // Guardar PIN para copiar
   window._lastNukiPin = pin;
 
-  // Si no hay Worker configurado, mostrar instrucciones
-  if (!NUKI_CONFIG.workerUrl) {
-    setTimeout(() => {
-      document.getElementById('nuki-status').className = 'nuki-status error';
-      document.getElementById('nuki-status').innerHTML =
-        '⚠️ Worker de Nuki pendiente de configurar.<br>Crea el Worker en Cloudflare siguiendo las instrucciones del código y pega la URL en <code>NUKI_CONFIG.workerUrl</code>';
-    }, 800);
-    return;
-  }
-
-  // Llamar al Worker de Nuki
-  try {
-    // Formato fecha Nuki: 'YYYY-MM-DDTHH:mm:00.000Z'
-    const fmtNuki = d => {
-      const dt = new Date(d);
-      return dt.toISOString().replace(/\.\d{3}Z$/, '.000Z');
-    };
-    const body = JSON.stringify({
-      smartlockId: parseInt(NUKI_CONFIG.smartLockId),
-      type: 13,
-      name: `Nexum-${d1}${month+1}-${guestName.split(' ')[0]}`,
-      code: parseInt(pin),
-      allowedFromDate: fmtNuki(checkIn),
-      allowedUntilDate: fmtNuki(checkOut),
-      allowedWeekDays: 127,
-      enabled: true,
-    });
-
-    // Endpoint correcto Nuki Web API para crear autorización de teclado
-    const url = `${NUKI_CONFIG.workerUrl}?endpoint=/smartlock/auth&body=${encodeURIComponent(body)}`;
-    const resp = await fetch(url, {signal: AbortSignal.timeout(10000)});
-
-    if (resp.ok) {
-      document.getElementById('nuki-status').className = 'nuki-status ok';
-      document.getElementById('nuki-status').innerHTML =
-        `✓ Código registrado en la cerradura correctamente.<br>Válido del ${d1} de ${MONTHS[month]} (15:00) al ${d2} de ${MONTHS[month]} (11:00).`;
-    } else {
-      throw new Error('HTTP ' + resp.status);
-    }
-  } catch(e) {
-    document.getElementById('nuki-status').className = 'nuki-status error';
+  // Mostrar código y fechas — registro manual en app Nuki
+  setTimeout(() => {
+    document.getElementById('nuki-status').className = 'nuki-status ok';
     document.getElementById('nuki-status').innerHTML =
-      `❌ Error al registrar en la cerradura: ${e.message}<br>El código PIN es válido — regístralo manualmente en la app Nuki.`;
-  }
+      `✓ Código generado correctamente.<br>Introdúcelo manualmente en la app Nuki con las fechas indicadas.`;
+  }, 500);
 }
 
 function closeNukiModal() {
