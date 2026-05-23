@@ -1828,7 +1828,7 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   const occ=getBD(aptId,year,month);
   for(let d=d1;d<d2;d++) occ.add(d);
   // Guardar en Worker para que sea visible para todos los usuarios
-  saveBlockedDaysToWorker(aptId, year, month, occ);
+  saveBlockedDaysToWorker(_aptId||aptId, year, _month||month, occ);
   // Update badge
   item.querySelector('.res-badge').className='res-badge badge-confirmed';
   item.querySelector('.res-badge').textContent='Confirmada';
@@ -1848,7 +1848,7 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   item.appendChild(cancelDiv);
   updatePendingCount();
   // Register payment automatically
-  const guestName=item.querySelector('.res-name')?item.querySelector('.res-name').textContent:'Huésped';
+  const guestName=(item.querySelector('.res-name')&&item.querySelector('.res-name').textContent!=='Nueva solicitud')?item.querySelector('.res-name').textContent:(window._guestName||'Huésped');
   // Guardar ficha del huésped
   if(window._lastGuestProfile) {
     window._lastGuestProfile.nukiCode=window._lastNukiPin||'—';
@@ -1866,8 +1866,12 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   const method=window._lastBooking&&window._lastBooking.pay?window._lastBooking.pay:'transferencia';
   const total=window._lastBooking&&window._lastBooking.total?window._lastBooking.total:null;
   registerPayment(aptId,month,d1,d2,guestName,method,total);
-  // Enviar reserva a Turno para programar limpieza
-  sendReservationToTurno(aptId, month, d1, d2, guestName);
+  // Enviar reserva a Turno — usar dataset si d1/d2 son undefined
+  const _d1 = (!isNaN(d1) && d1 !== undefined) ? d1 : parseInt(item.dataset.d1);
+  const _d2 = (!isNaN(d2) && d2 !== undefined) ? d2 : parseInt(item.dataset.d2);
+  const _month = (!isNaN(month) && month !== undefined) ? month : parseInt(item.dataset.month);
+  const _aptId = aptId || item.dataset.aptId;
+  sendReservationToTurno(_aptId, _month, _d1, _d2, guestName);
   // Generate Nuki access code + send welcome email
   const nukiPin = generateNukiPin();
   window._lastNukiPin = nukiPin;
@@ -3558,7 +3562,7 @@ async function sendReservationToTurno(aptId, month, d1, d2, guestName) {
   const endStr   = `${year}${pad(month+1)}${pad(d2)}`;
   const payload = {
     id: `nexum-${Date.now()}`,
-    apt: DATA[aptId]?DATA[aptId].name:'Apartamento',
+    apt: DATA[aptId]?DATA[aptId].name:(DATA[_aptId]?DATA[_aptId].name:'Apartamento'),
     guest: guestName,
     start: startStr,
     end: endStr,
