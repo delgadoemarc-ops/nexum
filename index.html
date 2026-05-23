@@ -684,6 +684,9 @@
 
   /* Nombre del autor en reseña */
   .review-author-input{margin-bottom:16px;text-align:left;}
+
+  .res-btn-cancel{background:#fde8e8;color:#a32d2d;width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:transform 0.15s;}
+  .res-btn-cancel:hover{transform:scale(1.15);background:#f8cccc;}
 </style>
 <!-- EmailJS SDK — https://emailjs.com -->
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
@@ -1824,6 +1827,8 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   const year=new Date().getFullYear();
   const occ=getBD(aptId,year,month);
   for(let d=d1;d<d2;d++) occ.add(d);
+  // Guardar en Worker para que sea visible para todos los usuarios
+  saveBlockedDaysToWorker(aptId, year, month, occ);
   // Update badge
   item.querySelector('.res-badge').className='res-badge badge-confirmed';
   item.querySelector('.res-badge').textContent='Confirmada';
@@ -1831,6 +1836,16 @@ function acceptRes(btn,resId,aptId,month,d1,d2){
   const actions=item.querySelector('.res-actions');
   if(actions) actions.remove();
   item.style.borderLeft='3px solid #B5835A';
+  // Guardar datos de la reserva en el item para poder cancelarla
+  item.dataset.aptId=aptId;
+  item.dataset.month=month;
+  item.dataset.d1=d1;
+  item.dataset.d2=d2;
+  // Añadir botón de cancelar reserva confirmada
+  const cancelDiv=document.createElement('div');
+  cancelDiv.className='res-actions';
+  cancelDiv.innerHTML=`<button class="res-btn res-btn-cancel" title="Cancelar reserva y liberar días" onclick="cancelConfirmedRes('${resId}')">✕</button>`;
+  item.appendChild(cancelDiv);
   updatePendingCount();
   // Register payment automatically
   const guestName=item.querySelector('.res-name')?item.querySelector('.res-name').textContent:'Huésped';
@@ -1892,7 +1907,7 @@ function dismissAirbnbToast(){
   if(toastTimer) clearTimeout(toastTimer);
 }
 
-/* Reject: mark cancelled */
+/* Reject: mark cancelled (pending reservations) */
 function rejectRes(btn,resId){
   const item=document.getElementById(resId);
   if(!item) return;
@@ -1902,6 +1917,40 @@ function rejectRes(btn,resId){
   if(actions) actions.remove();
   item.style.borderLeft='none';
   updatePendingCount();
+}
+
+/* Cancel confirmed reservation — libera los días bloqueados */
+function cancelConfirmedRes(resId){
+  const item=document.getElementById(resId);
+  if(!item) return;
+  if(!confirm('¿Cancelar esta reserva confirmada y liberar los días?')) return;
+  const aptId=item.dataset.aptId;
+  const month=parseInt(item.dataset.month);
+  const d1=parseInt(item.dataset.d1);
+  const d2=parseInt(item.dataset.d2);
+  const year=new Date().getFullYear();
+  // Liberar días bloqueados
+  if(aptId&&!isNaN(month)&&!isNaN(d1)&&!isNaN(d2)){
+    const occ=getBD(aptId,year,month);
+    for(let d=d1;d<d2;d++) occ.delete(d);
+    // Actualizar en Worker
+    saveBlockedDaysToWorker(aptId, year, month, occ);
+  }
+  // Actualizar badge
+  item.querySelector('.res-badge').className='res-badge badge-cancelled';
+  item.querySelector('.res-badge').textContent='Cancelada';
+  item.style.borderLeft='none';
+  // Quitar botón cancelar
+  const actions=item.querySelector('.res-actions');
+  if(actions) actions.remove();
+  // Quitar botón ver ficha si existe
+  updatePendingCount();
+  // Mostrar confirmación
+  const toast=document.createElement('div');
+  toast.style='position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:#a32d2d;color:white;padding:14px 24px;border-radius:var(--radius-sm);font-size:13px;z-index:5000;box-shadow:0 4px 20px rgba(0,0,0,0.2);';
+  toast.textContent='✕ Reserva cancelada — días liberados en el calendario';
+  document.body.appendChild(toast);
+  setTimeout(()=>toast.remove(), 3500);
 }
 
 function adminToggleDay(d){
@@ -2351,34 +2400,58 @@ function showDashTab(tab, btn){
   else if(tab==='payments') renderDashPayments(content);
 }
 
+let dashOccYear=new Date().getFullYear(), dashOccMonth=new Date().getMonth();
+
 function renderDashOccupancy(container){
   const now=new Date();
-  const y=now.getFullYear(), m=now.getMonth();
+  const y=dashOccYear, m=dashOccMonth;
   const totalDays=new Date(y,m+1,0).getDate();
   const fd=new Date(y,m,1).getDay();
   const startOff=(fd+6)%7;
   const days=['L','M','X','J','V','S','D'];
-  let html=`<div style="margin-bottom:8px;display:flex;gap:16px;align-items:center;">
-    <div style="font-size:13px;color:var(--muted);">Vista del mes actual · <strong style="color:var(--ink);">${MONTHS[m]} ${y}</strong></div>
-    <div class="dash-legend">
+  const isCurrentMonth=y===now.getFullYear()&&m===now.getMonth();
+
+  let html=`<div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <button class="cal-nav-btn" onclick="dashOccMonth--;if(dashOccMonth<0){dashOccMonth=11;dashOccYear--;}renderDashOccupancy(document.getElementById('dash-content'))">‹</button>
+    <div style="font-size:15px;font-family:'Cormorant Garamond',serif;color:var(--ink);min-width:160px;text-align:center;"><strong>${MONTHS[m]} ${y}</strong></div>
+    <button class="cal-nav-btn" onclick="dashOccMonth++;if(dashOccMonth>11){dashOccMonth=0;dashOccYear++;}renderDashOccupancy(document.getElementById('dash-content'))">›</button>
+    <button class="cal-nav-btn" onclick="dashOccYear=new Date().getFullYear();dashOccMonth=new Date().getMonth();renderDashOccupancy(document.getElementById('dash-content'))" style="font-size:10px;width:auto;padding:0 10px;letter-spacing:0.04em;">Hoy</button>
+    <div class="dash-legend" style="margin-left:auto;">
       <div class="dash-leg"><div class="dash-leg-dot" style="background:#e8f5ee;border:1px solid #a8d8b8;"></div>Libre</div>
       <div class="dash-leg"><div class="dash-leg-dot" style="background:#fde8e8;border:1px solid #f0a8a8;"></div>Ocupado</div>
     </div>
   </div>`;
+
+  // Resumen global del mes
+  let totalFreeAll=0, totalOccAll=0, totalDaysAll=0;
   Object.entries(DATA).forEach(([id,a])=>{
+    if(a.coming) return;
     const occ=getBD(id,y,m);
-    const total=totalDays;
+    totalOccAll+=occ.size;
+    totalFreeAll+=(totalDays-occ.size);
+    totalDaysAll+=totalDays;
+  });
+  const globalPct=totalDaysAll>0?Math.round((totalFreeAll/totalDaysAll)*100):0;
+  html+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
+    <div class="pay-summary-card"><div class="pay-summary-num">${globalPct}%</div><div class="pay-summary-label">Disponibilidad global</div></div>
+    <div class="pay-summary-card"><div class="pay-summary-num">${totalFreeAll}</div><div class="pay-summary-label">Días libres total</div></div>
+    <div class="pay-summary-card"><div class="pay-summary-num">${totalOccAll}</div><div class="pay-summary-label">Días ocupados total</div></div>
+  </div>`;
+
+  Object.entries(DATA).forEach(([id,a])=>{
+    if(a.coming) return;
+    const occ=getBD(id,y,m);
     const blocked=occ.size;
-    const free=total-blocked;
-    const pct=Math.round((free/total)*100);
+    const free=totalDays-blocked;
+    const pct=Math.round((free/totalDays)*100);
     let calHtml=days.map(d=>`<div class="dash-cal-dh">${d}</div>`).join('');
     for(let b=0;b<startOff;b++) calHtml+=`<div></div>`;
-    for(let d=1;d<=total;d++){
+    for(let d=1;d<=totalDays;d++){
       const isOcc=occ.has(d);
-      const isToday=d===now.getDate();
-      const isPast=d<now.getDate();
+      const isToday=isCurrentMonth&&d===now.getDate();
+      const isPast=isCurrentMonth&&d<now.getDate();
       let cls='dash-day'+(isOcc?' occ':' free')+(isToday?' today':'')+(isPast?' past':'');
-      calHtml+=`<div class="${cls}">${d}</div>`;
+      calHtml+=`<div class="${cls}" title="${isOcc?'Ocupado':'Libre'}">${d}</div>`;
     }
     html+=`<div class="dash-apt-row">
       <div class="dash-apt-header">
@@ -3013,7 +3086,7 @@ async function initPriceLabs() {
 const NUKI_CONFIG = {
   // Pega aquí la URL de tu Worker de Nuki cuando lo crees
   // Ejemplo: 'https://nuki-proxy.tunombre.workers.dev'
-  workerUrl: '', // PENDIENTE: crear Worker de Nuki en Cloudflare
+  workerUrl: 'https://empty-night-b7e7.delgadoemarc.workers.dev',
 
   // Smart Lock ID (extraído de la URL de Nuki Web)
   smartLockId: '22723563543',
@@ -3502,11 +3575,64 @@ async function sendReservationToTurno(aptId, month, d1, d2, guestName) {
   }
 }
 
+
+/* ══════════════════════════════════════════
+   BLOCKED DAYS SYNC — Cloudflare Worker
+   Guarda los días bloqueados globalmente para
+   que todos los usuarios vean la misma disponibilidad
+══════════════════════════════════════════ */
+
+const BLOCKED_WORKER = 'https://nexumreservas.delgadoemarc.workers.dev';
+
+/* Guardar días bloqueados de un apartamento en el Worker */
+async function saveBlockedDaysToWorker(aptId, year, month, days) {
+  try {
+    const key = `blocked_${aptId}_${year}_${month}`;
+    const payload = { type: 'blocked', key, days: Array.from(days) };
+    await fetch(BLOCKED_WORKER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch(e) {
+    console.warn('Error guardando días bloqueados:', e.message);
+  }
+}
+
+/* Cargar días bloqueados de todos los apartamentos al arrancar */
+async function loadBlockedDaysFromWorker() {
+  try {
+    const resp = await fetch(BLOCKED_WORKER + '?type=blocked');
+    if (!resp.ok) return;
+    const text = await resp.text();
+    if (!text.includes('BEGIN:VCALENDAR')) {
+      // Si devuelve JSON con blocked days
+      try {
+        const data = JSON.parse(text);
+        if (data.blockedDays) {
+          Object.entries(data.blockedDays).forEach(([key, days]) => {
+            const parts = key.replace('blocked_','').split('_');
+            if (parts.length === 3) {
+              const [aptId, year, month] = parts;
+              const bd = getBD(aptId, parseInt(year), parseInt(month));
+              days.forEach(d => bd.add(d));
+            }
+          });
+          console.log('✓ Días bloqueados cargados del Worker');
+        }
+      } catch(e) {}
+    }
+  } catch(e) {
+    console.warn('Error cargando días bloqueados:', e.message);
+  }
+}
+
 /* ── INIT ── */
 renderListings('all');
 initPriceLabs();
 initEmailJS();
-renderBarrio(); // Renderiza guía del barrio
+renderBarrio();
+loadBlockedDaysFromWorker(); // Carga días bloqueados globales // Renderiza guía del barrio
 // Pedir permiso de notificaciones al admin tras login
 // Auto-sync iCal on page load (admin will see results in panel)
 syncAllIcal();
