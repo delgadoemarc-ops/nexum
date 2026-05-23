@@ -3144,17 +3144,21 @@ async function createNukiCode(aptId, month, d1, d2, guestName) {
   // Llamar al Worker de Nuki
   try {
     const body = JSON.stringify({
-      type: 3, // Tipo: código numérico
+      smartlockId: parseInt(NUKI_CONFIG.smartLockId),
+      type: 13, // Tipo 13 = código teclado numérico Nuki Keypad
       name: `Nexum - ${guestName} - ${MONTHS[month].slice(0,3)} ${d1}-${d2}`,
       code: parseInt(pin),
       allowedFromDate: new Date(checkIn).toISOString(),
       allowedUntilDate: new Date(checkOut).toISOString(),
-      allowedWeekDays: 127, // Todos los días
+      allowedWeekDays: 127,
+      allowedFromTime: 0,
+      allowedUntilTime: 0,
       enabled: true,
+      remoteAllowed: true,
     });
 
-    // Endpoint correcto para crear código en teclado numérico Nuki
-    const url = `${NUKI_CONFIG.workerUrl}?endpoint=/smartlock/${NUKI_CONFIG.smartLockId}/keypad/code&body=${encodeURIComponent(body)}`;
+    // Endpoint correcto Nuki Web API para crear autorización de teclado
+    const url = `${NUKI_CONFIG.workerUrl}?endpoint=/smartlock/auth&body=${encodeURIComponent(body)}`;
     const resp = await fetch(url, {signal: AbortSignal.timeout(10000)});
 
     if (resp.ok) {
@@ -3559,24 +3563,29 @@ const TURNO_WORKER = 'https://nexumreservas.delgadoemarc.workers.dev';
 
 async function sendReservationToTurno(aptId, month, d1, d2, guestName) {
   const year = new Date().getFullYear();
-  // Formato YYYYMMDD para iCal
   const pad = n => String(n).padStart(2,'0');
-  const startStr = `${year}${pad(month+1)}${pad(d1)}`;
-  const endStr   = `${year}${pad(month+1)}${pad(d2)}`;
+  // DTSTART = día de checkout (día que hay que limpiar)
+  // DTEND = día después del checkout
+  const checkoutDay = new Date(year, month, d2);
+  const dayAfter = new Date(year, month, d2+1);
+  const fmtDate = d => `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`;
+  const aptName = DATA[aptId]?DATA[aptId].name:'Apartamento Iturrama I';
   const payload = {
     id: `nexum-${Date.now()}`,
-    apt: DATA[aptId]?DATA[aptId].name:(DATA[_aptId]?DATA[_aptId].name:'Apartamento'),
+    apt: aptName,
     guest: guestName,
-    start: startStr,
-    end: endStr,
+    start: fmtDate(checkoutDay), // Día de limpieza = día de checkout
+    end: fmtDate(dayAfter),
+    checkin: `${year}${pad(month+1)}${pad(d1)}`,
+    checkout: `${year}${pad(month+1)}${pad(d2)}`,
   };
   try {
-    await fetch(TURNO_WORKER, {
+    const resp = await fetch(TURNO_WORKER, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    console.log('✓ Reserva enviada a Turno:', payload);
+    console.log('✓ Reserva enviada a Turno:', payload, 'Response:', resp.status);
   } catch(e) {
     console.warn('Error enviando a Turno:', e.message);
   }
