@@ -3143,18 +3143,20 @@ async function createNukiCode(aptId, month, d1, d2, guestName) {
 
   // Llamar al Worker de Nuki
   try {
+    // Formato fecha Nuki: 'YYYY-MM-DDTHH:mm:00.000Z'
+    const fmtNuki = d => {
+      const dt = new Date(d);
+      return dt.toISOString().replace(/\.\d{3}Z$/, '.000Z');
+    };
     const body = JSON.stringify({
       smartlockId: parseInt(NUKI_CONFIG.smartLockId),
-      type: 13, // Tipo 13 = código teclado numérico Nuki Keypad
-      name: `Nexum - ${guestName} - ${MONTHS[month].slice(0,3)} ${d1}-${d2}`,
+      type: 13,
+      name: `Nexum-${d1}${month+1}-${guestName.split(' ')[0]}`,
       code: parseInt(pin),
-      allowedFromDate: new Date(checkIn).toISOString(),
-      allowedUntilDate: new Date(checkOut).toISOString(),
+      allowedFromDate: fmtNuki(checkIn),
+      allowedUntilDate: fmtNuki(checkOut),
       allowedWeekDays: 127,
-      allowedFromTime: 0,
-      allowedUntilTime: 0,
       enabled: true,
-      remoteAllowed: true,
     });
 
     // Endpoint correcto Nuki Web API para crear autorización de teclado
